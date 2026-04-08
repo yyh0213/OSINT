@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI OSINT Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Sidebar for Report List -->
+        <aside id="sidebar" class="glass-panel">
+            <header class="sidebar-header">
+                <h1>OSINT</h1>
+                <p>Daily Briefings</p>
+                <button id="btn-generate" class="glow-btn">
+                    <span class="btn-text">+ Generate Report</span>
+                    <span class="btn-spinner hidden"></span>
+                </button>
+            </header>
+            <nav id="report-list">
+                <!-- Dynamically populated report items go here -->
+                <div class="loader-pulse"></div>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="glass-panel">
+            <header class="content-header">
+                <h2 id="report-title">Select a report</h2>
+                <div class="status-indicator">
+                    <span class="pulse-dot"></span> Live Analysis
+                </div>
+            </header>
+            <article id="report-body">
+                <p class="placeholder-text">Please select a report from the sidebar to view its details.</p>
+            </article>
+        </main>
+
+        <!-- Right Side Panel for References -->
+        <aside id="reference-panel" class="glass-panel hidden">
+            <header class="panel-header">
+                <h3>Reference Details</h3>
+                <button id="close-panel" aria-label="Close Panel">&times;</button>
+            </header>
+            <div id="reference-content">
+                <!-- Dynamically populated reference info goes here -->
+                <p class="placeholder-text">Click a reference link in the text to view details.</p>
+            </div>
+            <div id="iframe-container">
+                <!-- Iframe for URL loading -->
+                 <iframe id="reference-iframe" src="" frameborder="0" sandbox="allow-scripts allow-same-origin" title="Reference Content"></iframe>
+                 <div id="iframe-loader" class="hidden">Loading content...</div>
+            </div>
+        </aside>
+
+        <!-- AI Chat Widget -->
+        <div id="chat-widget" class="glass-panel collapsed">
+            <header class="chat-header" id="chat-header-toggle">
+                <div class="chat-title">
+                    <span class="chat-dot"></span> AI Assistant
+                </div>
+                <span class="toggle-icon">▲</span>
+            </header>
+            <div class="chat-body" id="chat-body">
+                <div class="chat-message system">
+                    Welcome to the OSINT Desk. How can I assist you with today's briefing?
+                </div>
+            </div>
+            <div class="chat-footer">
+                <input type="text" id="chat-input" placeholder="Ask AI...">
+                <button id="chat-send">Send</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
