@@ -51,7 +51,7 @@ python analyzer.py
 보고서 전문을 예쁘게 포맷팅된 화면으로 읽고, 참조 기사를 우측 스마트 뷰어에서 띄우려면 FastAPI 서버를 켭니다.
 ```bash
 cd OSINT/report_viewer
-uvicorn server:app --host 127.0.0.1 --port 8000
+python -m uvicorn server:app --host 127.0.0.1 --port 8000
 ```
 명령어 실행 후 브라우저에서 `http://127.0.0.1:8000` 로 접속하시면 됩니다!
 

@@ -2,7 +2,7 @@ import httpx
 import os
 from qdrant_client import QdrantClient
 from openai import OpenAI
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import textwrap
 
@@ -102,7 +102,7 @@ def generate_daily_report(chat_history):
     report_content = response.choices[0].message.content
     chat_history.append({"role": "assistant", "content": report_content})
 
-    now = datetime.now()
+    now = datetime.now(timezone(timedelta(hours=9)))
     date_str, time_str = now.strftime("%Y%m%d"), now.strftime("%H:%M:%S")
     save_dir = "/home/user/OSINT/OSINT_REPORT"
     file_path = Path(save_dir) / f"일일보고_{date_str}.txt"
