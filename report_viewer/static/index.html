@@ -12,7 +12,10 @@
         <!-- Sidebar for Report List -->
         <aside id="sidebar" class="glass-panel">
             <header class="sidebar-header">
-                <h1>OSINT</h1>
+                <div class="header-row">
+                    <h1>OSINT</h1>
+                    <button id="btn-settings" class="icon-btn" title="Schedule Options">⚙️</button>
+                </div>
                 <p>Daily Briefings</p>
                 <button id="btn-generate" class="glow-btn">
                     <span class="btn-text">+ Generate Report</span>
@@ -36,6 +39,11 @@
             <article id="report-body">
                 <p class="placeholder-text">Please select a report from the sidebar to view its details.</p>
             </article>
+            <div id="generation-progress" class="hidden">
+                <div class="terminal-header">&gt;_ OSINT_ANALYSIS_SEQUENCE_INITIATED</div>
+                <div id="terminal-logs"></div>
+                <div class="progress-bar-container"><div id="progress-bar-fill"></div></div>
+            </div>
         </main>
 
         <!-- Right Side Panel for References -->
@@ -71,6 +79,21 @@
             <div class="chat-footer">
                 <input type="text" id="chat-input" placeholder="Ask AI...">
                 <button id="chat-send">Send</button>
+            </div>
+        </div>
+        
+        <!-- Schedule Modal -->
+        <div id="schedule-modal" class="modal-overlay hidden">
+            <div class="modal-content glass-panel">
+                <h2>⏰ Auto-Generate Schedule</h2>
+                <p class="modal-desc">Set a daily time (KST) to automatically generate and notify a new OSINT briefing.</p>
+                <div class="schedule-input-group">
+                    <input type="time" id="schedule-time" class="time-picker">
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-schedule-cancel" class="cancel-btn">Cancel</button>
+                    <button id="btn-schedule-save" class="save-btn">Save Schedule</button>
+                </div>
             </div>
         </div>
     </div>

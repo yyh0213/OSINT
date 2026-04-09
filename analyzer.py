@@ -7,11 +7,11 @@ from pathlib import Path
 import textwrap
 
 # --- 1. 기본 설정 ---
-UNRAID_IP = "192.168.45.80"
-OLLAMA_URL = f"http://{UNRAID_IP}:11434/api/embeddings"
-COLLECTION_NAME = "osint_news"
-EMBED_MODEL = "bge-m3"
-# --- 외부 보안 설정 (.osint_env 파일에서 API 키 로드) ---
+DB_IP = os.environ.get("DB_IP", "192.168.45.80")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", f"http://{DB_IP}:11434/api/embeddings")
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "osint_news")
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "bge-m3")
+# --- 외부 보안 설정 (.osint_env 파일 또는 환경 변수에서 API 키 로드) ---
 KEY_FILE = "/home/user/.osint_env"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
@@ -23,11 +23,14 @@ if not OPENROUTER_API_KEY and os.path.exists(KEY_FILE):
                 OPENROUTER_API_KEY = line.split("=", 1)[1]
 
 if not OPENROUTER_API_KEY:
-    raise ValueError(f"보안 오류: OPENROUTER_API_KEY가 없습니다! {KEY_FILE} 파일에 키를 저장해주세요.")
+    raise ValueError(
+        "보안 오류: OPENROUTER_API_KEY가 없습니다! 도커 환경 변수에 입력하거나 .osint_env 파일에 저장해주세요."
+    )
 
 llm_client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
-AI_MODEL = "anthropic/claude-sonnet-4.6"
-qdrant = QdrantClient(host=UNRAID_IP, port=6333)
+AI_MODEL = os.environ.get("AI_MODEL", "anthropic/claude-sonnet-4.6")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
+qdrant = QdrantClient(host=DB_IP, port=QDRANT_PORT)
 
 # --- 2. 프롬프트 라이브러리 ---
 PROMPT = {
@@ -104,7 +107,7 @@ def generate_daily_report(chat_history):
 
     now = datetime.now(timezone(timedelta(hours=9)))
     date_str, time_str = now.strftime("%Y%m%d"), now.strftime("%H:%M:%S")
-    save_dir = "/home/user/OSINT/OSINT_REPORT"
+    save_dir = os.environ.get("REPORT_DIR", "/app/OSINT_REPORT")
     file_path = Path(save_dir) / f"일일보고_{date_str}.txt"
     os.makedirs(save_dir, exist_ok=True)
 
@@ -118,8 +121,59 @@ def generate_daily_report(chat_history):
 
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(full_report + "\n\n")
-    
+
     return full_report, str(file_path)
+
+
+def generate_daily_report_stream(chat_history):
+    yield ">> 데이터베이스에서 최근 24시간 글로벌 동향을 탐색 중입니다...\n"
+    daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
+    daily_context = search_database(daily_query, top_k=8)
+
+    info_count = len(daily_context.split('[수집일시]')) - 1
+    yield f">> DB 검색 완료. {info_count}개의 핵심 정보를 확보했습니다.\n"
+    yield ">> AI 분석 엔진(Anthropic Claude 3.5 Sonnet) 가동 시작...\n\n"
+    
+    initial_prompt = f"{PROMPT['daily_report']}\n\n[수집된 데이터]\n{daily_context}"
+    
+    # Use a copy so we don't mess up the global history mid-stream if it fails
+    local_history = chat_history.copy()
+    local_history.append({"role": "user", "content": initial_prompt})
+
+    response = llm_client.chat.completions.create(
+        model=AI_MODEL, messages=local_history, temperature=0.3, stream=True
+    )
+
+    report_content = ""
+    for chunk in response:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            report_content += delta
+            yield delta
+
+    chat_history.append({"role": "user", "content": initial_prompt})
+    chat_history.append({"role": "assistant", "content": report_content})
+
+    now = datetime.now(timezone(timedelta(hours=9)))
+    date_str, time_str = now.strftime("%Y%m%d"), now.strftime("%H:%M:%S")
+    save_dir = os.environ.get("REPORT_DIR", "/app/OSINT_REPORT")
+    file_path = Path(save_dir) / f"일일보고_{date_str}.txt"
+    os.makedirs(save_dir, exist_ok=True)
+
+    full_report = textwrap.dedent(f"""
+        {"=" * 80}
+        📋 [AI OSINT 일일 종합 브리핑] - {date_str} {time_str}
+        {"=" * 80}
+        {report_content}
+        {"=" * 80}
+    """).strip()
+
+    with open(file_path, "a", encoding="utf-8") as f:
+        f.write(full_report + "\n\n")
+
+    yield f"\n\n>> [시스템] 보고서 저장이 완료되었습니다: {file_path}"
+
+
 
 def chat_turn(user_input, chat_history):
     new_context = search_database(user_input, top_k=5)
@@ -133,6 +187,7 @@ def chat_turn(user_input, chat_history):
     answer = response.choices[0].message.content
     chat_history.append({"role": "assistant", "content": answer})
     return answer
+
 
 # --- 대화형 CLI 메인 루프 ---
 def chat_with_agent():
@@ -148,7 +203,9 @@ def chat_with_agent():
     print(full_report)
     print(f"[*] 보고서가 저장되었습니다: {file_path}")
 
-    print("\n💡 보고서 내용에 대해 질문하시거나, 새로운 키워드를 검색하세요. (종료를 원하면 'q' 입력)")
+    print(
+        "\n💡 보고서 내용에 대해 질문하시거나, 새로운 키워드를 검색하세요. (종료를 원하면 'q' 입력)"
+    )
 
     while True:
         user_input = input("\n>> 사용자님 지시사항: ")

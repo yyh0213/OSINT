@@ -11,6 +11,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnGenerate = document.getElementById("btn-generate");
     const btnGenerateText = btnGenerate.querySelector(".btn-text");
     const btnGenerateSpinner = btnGenerate.querySelector(".btn-spinner");
+    const genProgress = document.getElementById("generation-progress");
+    const termLogs = document.getElementById("terminal-logs");
+    const progressBarFill = document.getElementById("progress-bar-fill");
     
     const chatWidget = document.getElementById("chat-widget");
     const chatHeaderToggle = document.getElementById("chat-header-toggle");
@@ -269,21 +272,60 @@ document.addEventListener("DOMContentLoaded", () => {
         btnGenerateText.style.display = "none";
         btnGenerateSpinner.classList.remove("hidden");
         
+        // Show terminal UI
+        reportBody.classList.add("hidden");
+        reportTitle.textContent = "Live Analysis in Progress...";
+        genProgress.classList.remove("hidden");
+        termLogs.innerHTML = "";
+        progressBarFill.style.width = "0%";
+
+        const streamOutput = document.createElement("pre");
+        streamOutput.style.whiteSpace = "pre-wrap";
+        streamOutput.style.margin = "0";
+        streamOutput.style.fontFamily = "monospace";
+        streamOutput.style.lineHeight = "1.5";
+        termLogs.appendChild(streamOutput);
+
         try {
-            const res = await fetch("/api/generate", { method: "POST" });
-            const data = await res.json();
-            if (data.success) {
-                await fetchReports();
-            } else {
-                alert("Generation failed");
+            const res = await fetch("/api/generate_stream", { method: "POST" });
+            progressBarFill.style.width = "30%";
+            
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, {stream: true});
+                streamOutput.textContent += chunk;
+                termLogs.scrollTop = termLogs.scrollHeight;
+                
+                // Keep progress bar gently moving between 30 and 95
+                let w = parseFloat(progressBarFill.style.width) || 30;
+                if (w < 95) progressBarFill.style.width = (w + 0.5) + "%";
             }
+            
+            progressBarFill.style.width = "100%";
+            streamOutput.textContent += "\n[✔] DAILY BRIEFING GENERATED SUCCESSFULLY. INITIALIZING UI RENDERING...";
+            
+            await new Promise(r => setTimeout(r, 800));
+
+            await fetchReports();
         } catch (err) {
             console.error("Generation error:", err);
+            streamOutput.textContent += "\n[X] SYSTEM ERROR: CONNECTION SEVERED.";
+            progressBarFill.style.background = "red";
             alert("Error connecting to server for report generation.");
         } finally {
             btnGenerate.disabled = false;
             btnGenerateText.style.display = "inline-block";
             btnGenerateSpinner.classList.add("hidden");
+            
+            setTimeout(() => {
+                genProgress.classList.add("hidden");
+                reportBody.classList.remove("hidden");
+            }, 400);
         }
     });
 
@@ -361,4 +403,61 @@ document.addEventListener("DOMContentLoaded", () => {
         chatBody.scrollTop = chatBody.scrollHeight;
         return div;
     }
+
+    /* -------------------------------------------
+       Schedule Settings UI & API
+    ------------------------------------------- */
+    const scheduleModal = document.getElementById("schedule-modal");
+    const btnSettings = document.getElementById("btn-settings");
+    const btnScheduleCancel = document.getElementById("btn-schedule-cancel");
+    const btnScheduleSave = document.getElementById("btn-schedule-save");
+    const timeInput = document.getElementById("schedule-time");
+
+    async function loadSchedule() {
+        try {
+            const res = await fetch("/api/schedule");
+            if (res.ok) {
+                const data = await res.json();
+                timeInput.value = data.time || "09:00";
+            }
+        } catch (e) {
+            console.error("Failed to load schedule:", e);
+        }
+    }
+    
+    if(btnSettings) {
+        btnSettings.addEventListener("click", () => {
+            scheduleModal.classList.remove("hidden");
+            loadSchedule();
+        });
+
+        btnScheduleCancel.addEventListener("click", () => {
+            scheduleModal.classList.add("hidden");
+        });
+
+        btnScheduleSave.addEventListener("click", async () => {
+            const timeVal = timeInput.value;
+            if (!timeVal) return;
+            
+            btnScheduleSave.textContent = "Saving...";
+            try {
+                const res = await fetch("/api/schedule", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ time: timeVal })
+                });
+                if (res.ok) {
+                    alert(`스케줄이 매일 ${timeVal} 시간대로 저장되었습니다!`);
+                    scheduleModal.classList.add("hidden");
+                } else {
+                    alert("설정 저장에 실패했습니다.");
+                }
+            } catch(e) {
+                alert("서버와 통신할 수 없습니다.");
+            } finally {
+                btnScheduleSave.textContent = "Save Schedule";
+            }
+        });
+    }
+
 });

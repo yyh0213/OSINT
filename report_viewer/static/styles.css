@@ -20,6 +20,10 @@
     padding: 0;
 }
 
+.hidden {
+    display: none !important;
+}
+
 body {
     background-color: var(--bg-primary);
     background-image: 
@@ -547,3 +551,200 @@ body {
     background: var(--accent-hover);
 }
 
+/* ---------------------------------
+   Layout & Modal Styles
+--------------------------------- */
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: color 0.3s ease, transform 0.3s ease;
+}
+
+.icon-btn:hover {
+    color: var(--accent-color);
+    transform: rotate(45deg);
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.modal-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.modal-content {
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+    padding: 2rem;
+    border-radius: 12px;
+    width: 350px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    border: 1px solid var(--glass-border);
+    transform: translateY(0);
+    transition: transform 0.3s ease;
+}
+
+.modal-overlay.hidden .modal-content {
+    transform: translateY(-20px);
+}
+
+.modal-desc {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 1rem 0 1.5rem 0;
+    line-height: 1.4;
+}
+
+.schedule-input-group {
+    margin-bottom: 2rem;
+}
+
+.time-picker {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    color: white;
+    font-size: 1.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    outline: none;
+    text-align: center;
+}
+
+.time-picker::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.cancel-btn, .save-btn {
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: all 0.2s ease;
+}
+
+.cancel-btn {
+    background: transparent;
+    border: 1px solid var(--text-secondary);
+    color: var(--text-secondary);
+}
+
+.cancel-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+
+.save-btn {
+    background: var(--accent-color);
+    border: none;
+    color: #0f172a;
+}
+
+.save-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-2px);
+}
+
+/* ---------------------------------
+   Terminal Generation Progress UI
+--------------------------------- */
+#generation-progress {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 2rem;
+    font-family: monospace;
+    background: rgba(10, 15, 25, 0.4);
+    border-radius: 8px;
+    margin: 2rem;
+    min-height: 0;         /* Fix flex grow overflow */
+    overflow: hidden;      /* Ensure progress bar stays anchored */
+}
+
+#generation-progress:not(.hidden) {
+    display: flex !important;
+}
+
+.terminal-header {
+    color: var(--accent-color);
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+    font-weight: bold;
+    border-bottom: 1px dashed rgba(56, 189, 248, 0.3);
+    padding-bottom: 0.5rem;
+}
+
+#terminal-logs {
+    flex: 1;
+    color: var(--success-dot);
+    overflow-y: auto;
+    min-height: 0;
+    line-height: 1.8;
+    font-size: 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-right: 1rem;
+}
+
+#terminal-logs::-webkit-scrollbar {
+    width: 6px;
+}
+#terminal-logs::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.3);
+    border-radius: 3px;
+}
+
+.term-log {
+    opacity: 0;
+    animation: termFadeIn 0.3s forwards;
+}
+
+@keyframes termFadeIn {
+    to { opacity: 1; }
+}
+
+.progress-bar-container {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    margin-top: 2rem;
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+}
+
+#progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #10b981, #38bdf8);
+    transition: width 0.2s linear;
+}
