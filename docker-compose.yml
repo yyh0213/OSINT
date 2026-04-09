@@ -1,11 +1,12 @@
 services:
   osint-dashboard:
-    image: starmoby/osint-dashboard:latest
+    build: .                   # 현재 폴더(Dockerfile)로 직접 빌드
+    image: starmoby/osint-dashboard:latest   # 빌드 후 이 이름으로 태깅
     container_name: osint-dashboard
     ports:
-      - "8000:8000"           # 로컬 개발: localhost:8000 으로 접속
+      - "8000:8000"
     volumes:
-      - ./OSINT_REPORT:/app/OSINT_REPORT   # 보고서가 로컬 폴더에 영구 저장됨
+      - ./OSINT_REPORT:/app/OSINT_REPORT     # 보고서 영구 보존
     env_file:
-      - .env                  # 아래 .env 파일에서 환경변수 자동 로드
+      - .env
     restart: unless-stopped

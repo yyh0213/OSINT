@@ -92,7 +92,7 @@ def search_database(query, top_k=5):
     return context_text
 
 
-def search_web_tool(query: str, max_results: int = 3) -> str:
+def search_web_tool(query: str, max_results: int = 6) -> str:
     """AI가 호출할 실제 웹 검색 함수"""
     print(f"\n[에이전트 행동] 🌐 외부 웹 탐색 중... (검색어: {query})")
     try:
@@ -218,26 +218,46 @@ def chat_turn(user_input, chat_history):
     # 1. 1차 내부 DB 검색 (Qdrant)
     new_context = search_database(user_input, top_k=5)
 
-    # 2. 프롬프트 구성
-    follow_up_prompt = f"{PROMPT['follow_up']}\n\n[내부 DB 검색 결과]\n{new_context}\n\n[국장님 질문]\n{user_input}\n\n*지시사항: 내부 DB에 정보가 충분하지 않다면 반드시 'search_web' 도구를 사용하여 외부 뉴스를 교차 검증하십시오.*"
+    # 2. 프롬프트 구성 — 반드시 웹 검색을 먼저 수행하도록 지시
+    follow_up_prompt = (
+        f"{PROMPT['follow_up']}\n\n"
+        f"[내부 DB 검색 결과]\n{new_context}\n\n"
+        f"[국장님 질문]\n{user_input}\n\n"
+        f"*필수 지시사항: 위 내용에 관계없이 반드시 'search_web' 도구를 호출한 뒤 외부 뉴스를 교차 검증하고 답변하십시오. 다만 DB정보와 웹검색 정보가 충돌할 경우 DB 정보를 신뢰하십시오. 도구 호출 없이 답변하는 것은 금지됩니다.*"
+    )
 
     chat_history.append({"role": "user", "content": follow_up_prompt})
 
-    # 3. AI 모델 호출 (도구 포함)
+    # 3. AI 모델 호출 - 웹 검색을 항상 강제 실행
     response = llm_client.chat.completions.create(
         model=AI_MODEL,
         messages=chat_history,
         temperature=0.3,
-        tools=tools,  # 💡 AI에게 도구를 쥐여줌
-        tool_choice="auto",
+        tools=tools,
+        tool_choice="auto",  # 프롬프트로 검색을 강제
     )
 
     response_message = response.choices[0].message
 
     # 4. AI가 "웹 검색 도구를 쓰겠다"고 결정한 경우
     if response_message.tool_calls:
-        # AI의 도구 호출 메시지를 대화 기록에 추가
-        chat_history.append(response_message)
+        # AI의 도구 호출 메시지를 dict로 변환하여 대화 기록에 추가 (객체 직접 추가 시 직렬화 오류 발생)
+        assistant_msg = {
+            "role": "assistant",
+            "content": response_message.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in response_message.tool_calls
+            ],
+        }
+        chat_history.append(assistant_msg)
 
         for tool_call in response_message.tool_calls:
             if tool_call.function.name == "search_web":
