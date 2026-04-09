@@ -5,6 +5,8 @@ from openai import OpenAI
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import textwrap
+from duckduckgo_search import DDGS
+import json
 
 # --- 1. 기본 설정 ---
 DB_IP = os.environ.get("DB_IP", "192.168.45.80")
@@ -90,6 +92,44 @@ def search_database(query, top_k=5):
     return context_text
 
 
+def search_web_tool(query: str, max_results: int = 3) -> str:
+    """AI가 호출할 실제 웹 검색 함수"""
+    print(f"\n[에이전트 행동] 🌐 외부 웹 탐색 중... (검색어: {query})")
+    try:
+        results = DDGS().text(query, max_results=max_results)
+        if not results:
+            return "웹 검색 결과가 없습니다."
+
+        formatted_results = ""
+        for i, r in enumerate(results, 1):
+            formatted_results += f"[{i}] 제목: {r.get('title')}\n요약: {r.get('body')}\n링크: {r.get('href')}\n\n"
+        return formatted_results
+    except Exception as e:
+        return f"웹 검색 중 오류 발생: {e}"
+
+
+# --- 에이전트용 '도구(Tools)' 정의 ---
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": "내부 DB에 관련 정보가 없거나, 실시간 외부 뉴스가 필요할 때 웹을 검색합니다. 영어로 검색하면 더 정확한 결과가 나옵니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "검색 엔진에 입력할 구체적인 검색어 (예: 'Iran US ceasefire text discrepancy Associated Press')",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    }
+]
+
+
 # --- 4. 대화형 AI 엔진 ---
 def generate_daily_report(chat_history):
     daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
@@ -130,12 +170,12 @@ def generate_daily_report_stream(chat_history):
     daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
     daily_context = search_database(daily_query, top_k=8)
 
-    info_count = len(daily_context.split('[수집일시]')) - 1
+    info_count = len(daily_context.split("[수집일시]")) - 1
     yield f">> DB 검색 완료. {info_count}개의 핵심 정보를 확보했습니다.\n"
     yield ">> AI 분석 엔진(Anthropic Claude 3.5 Sonnet) 가동 시작...\n\n"
-    
+
     initial_prompt = f"{PROMPT['daily_report']}\n\n[수집된 데이터]\n{daily_context}"
-    
+
     # Use a copy so we don't mess up the global history mid-stream if it fails
     local_history = chat_history.copy()
     local_history.append({"role": "user", "content": initial_prompt})
@@ -174,19 +214,64 @@ def generate_daily_report_stream(chat_history):
     yield f"\n\n>> [시스템] 보고서 저장이 완료되었습니다: {file_path}"
 
 
-
 def chat_turn(user_input, chat_history):
+    # 1. 1차 내부 DB 검색 (Qdrant)
     new_context = search_database(user_input, top_k=5)
-    follow_up_prompt = f"{PROMPT['follow_up']}\n\n[추가 검색된 데이터]\n{new_context}\n\n[질문]\n{user_input}"
+
+    # 2. 프롬프트 구성
+    follow_up_prompt = f"{PROMPT['follow_up']}\n\n[내부 DB 검색 결과]\n{new_context}\n\n[국장님 질문]\n{user_input}\n\n*지시사항: 내부 DB에 정보가 충분하지 않다면 반드시 'search_web' 도구를 사용하여 외부 뉴스를 교차 검증하십시오.*"
+
     chat_history.append({"role": "user", "content": follow_up_prompt})
 
+    # 3. AI 모델 호출 (도구 포함)
     response = llm_client.chat.completions.create(
-        model=AI_MODEL, messages=chat_history, temperature=0.3
+        model=AI_MODEL,
+        messages=chat_history,
+        temperature=0.3,
+        tools=tools,  # 💡 AI에게 도구를 쥐여줌
+        tool_choice="auto",
     )
 
-    answer = response.choices[0].message.content
-    chat_history.append({"role": "assistant", "content": answer})
-    return answer
+    response_message = response.choices[0].message
+
+    # 4. AI가 "웹 검색 도구를 쓰겠다"고 결정한 경우
+    if response_message.tool_calls:
+        # AI의 도구 호출 메시지를 대화 기록에 추가
+        chat_history.append(response_message)
+
+        for tool_call in response_message.tool_calls:
+            if tool_call.function.name == "search_web":
+                # AI가 만든 검색어 추출
+                function_args = json.loads(tool_call.function.arguments)
+                search_query = function_args.get("query")
+
+                # 실제 파이썬 함수 실행
+                web_result = search_web_tool(search_query)
+
+                # 검색 결과를 AI에게 다시 전달
+                chat_history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": "search_web",
+                        "content": web_result,
+                    }
+                )
+
+        # 5. 외부 검색 결과를 바탕으로 최종 답변 생성
+        print("    [에이전트 행동] 🧠 외부 정보 분석 및 최종 보고서 작성 중...")
+        second_response = llm_client.chat.completions.create(
+            model=AI_MODEL, messages=chat_history, temperature=0.3
+        )
+        answer = second_response.choices[0].message.content
+        chat_history.append({"role": "assistant", "content": answer})
+        return answer
+
+    # AI가 도구를 쓰지 않고 (내부 DB만으로 충분하다고 판단) 바로 답변한 경우
+    else:
+        answer = response_message.content
+        chat_history.append({"role": "assistant", "content": answer})
+        return answer
 
 
 # --- 대화형 CLI 메인 루프 ---
