@@ -114,13 +114,13 @@ tools = [
         "type": "function",
         "function": {
             "name": "search_web",
-            "description": "내부 DB에 관련 정보가 없거나, 실시간 외부 뉴스가 필요할 때 웹을 검색합니다. 영어로 검색하면 더 정확한 결과가 나옵니다.",
+            "description": "내부 DB에 정보가 부족할 때 글로벌 웹 뉴스를 검색합니다. 검색의 정확도를 위해 한국어 자연어가 아닌, 핵심 '영문 키워드' 단위로 쪼개어 검색해야 합니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "검색 엔진에 입력할 구체적인 검색어 (예: 'Iran US ceasefire text discrepancy Associated Press')",
+                        "description": "검색 엔진에 최적화된 구체적인 영문 키워드 조합 (단어 나열형). 자연어 의문문이나 한국어는 절대 금지. (예: 'US Iran ceasefire official reaction South Korea Japan', 'Iran US truce agreement European Union response')",
                     }
                 },
                 "required": ["query"],
@@ -218,33 +218,49 @@ def chat_turn(user_input, chat_history):
     # 1. 1차 내부 DB 검색 (Qdrant)
     new_context = search_database(user_input, top_k=5)
 
-    # 2. 프롬프트 구성 — 반드시 웹 검색을 먼저 수행하도록 지시
-    follow_up_prompt = (
-        f"{PROMPT['follow_up']}\n\n"
-        f"[내부 DB 검색 결과]\n{new_context}\n\n"
-        f"[국장님 질문]\n{user_input}\n\n"
-        f"*필수 지시사항: 위 내용에 관계없이 반드시 'search_web' 도구를 호출한 뒤 외부 뉴스를 교차 검증하고 답변하십시오. 다만 DB정보와 웹검색 정보가 충돌할 경우 DB 정보를 신뢰하십시오. 도구 호출 없이 답변하는 것은 금지됩니다.*"
-    )
+    # 2. 프롬프트 구성
+    follow_up_prompt = f"""{PROMPT["follow_up"]}
+
+[내부 DB 검색 결과]
+{new_context}
+
+[국장님 질문]
+{user_input}
+
+[분석관(AI) 필수 행동 지침]
+1. 내부 DB에 정보가 충분하지 않거나 최신 글로벌 동향(특히 타국 정부의 공식 반응 등)이 필요하다면 반드시 'search_web' 도구를 사용하십시오.
+2. 도구를 호출할 때는 질문을 분석하여 가장 핵심적인 '영문(English) 키워드 조합'으로 검색어를 변환해야 합니다. (예: "US Iran ceasefire reactions")
+3. 필요하다면 도구를 여러 번 호출하여 각 국가별(US, Europe, South Korea, Japan)로 따로 검색해도 좋습니다.
+4. DB의 정보랑 웹검색의 정보가 충돌하는 경우 DB의 정보를 신뢰하고, 웹검색 정보는 참조 정도로 기술하십시오.
+"""
 
     chat_history.append({"role": "user", "content": follow_up_prompt})
 
-    # 3. AI 모델 호출 - 웹 검색을 항상 강제 실행
-    response = llm_client.chat.completions.create(
-        model=AI_MODEL,
-        messages=chat_history,
-        temperature=0.3,
-        tools=tools,
-        tool_choice="auto",  # 프롬프트로 검색을 강제
-    )
+    # 3. 다중 턴(Multi-Turn) 에이전트 루프 시작
+    max_iterations = 5  # AI가 무한 검색에 빠지는 것을 막기 위한 안전장치
 
-    response_message = response.choices[0].message
+    for iteration in range(max_iterations):
+        # 매 호출마다 tools를 쥐여줌
+        response = llm_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=chat_history,
+            temperature=0.3,
+            tools=tools,
+            tool_choice="auto",
+        )
 
-    # 4. AI가 "웹 검색 도구를 쓰겠다"고 결정한 경우
-    if response_message.tool_calls:
-        # AI의 도구 호출 메시지를 dict로 변환하여 대화 기록에 추가 (객체 직접 추가 시 직렬화 오류 발생)
+        response_message = response.choices[0].message
+
+        # AI가 더 이상 도구를 쓰지 않겠다고 판단한 경우 (최종 답변 도달)
+        if not response_message.tool_calls:
+            answer = response_message.content or "[응답 없음]"
+            chat_history.append({"role": "assistant", "content": answer})
+            return answer
+
+        # AI가 도구를 사용하겠다고 한 경우
         assistant_msg = {
             "role": "assistant",
-            "content": response_message.content,
+            "content": response_message.content,  # "추가로 검색합니다" 같은 코멘트가 있을 수 있음
             "tool_calls": [
                 {
                     "id": tc.id,
@@ -259,16 +275,14 @@ def chat_turn(user_input, chat_history):
         }
         chat_history.append(assistant_msg)
 
+        # 도구 실행
         for tool_call in response_message.tool_calls:
             if tool_call.function.name == "search_web":
-                # AI가 만든 검색어 추출
                 function_args = json.loads(tool_call.function.arguments)
                 search_query = function_args.get("query")
 
-                # 실제 파이썬 함수 실행
                 web_result = search_web_tool(search_query)
 
-                # 검색 결과를 AI에게 다시 전달
                 chat_history.append(
                     {
                         "role": "tool",
@@ -278,20 +292,21 @@ def chat_turn(user_input, chat_history):
                     }
                 )
 
-        # 5. 외부 검색 결과를 바탕으로 최종 답변 생성
-        print("    [에이전트 행동] 🧠 외부 정보 분석 및 최종 보고서 작성 중...")
-        second_response = llm_client.chat.completions.create(
-            model=AI_MODEL, messages=chat_history, temperature=0.3
+        print(
+            f"    [에이전트 행동] 🧠 {iteration + 1}차 탐색 완료. 추가 정보 분석 중..."
         )
-        answer = second_response.choices[0].message.content
-        chat_history.append({"role": "assistant", "content": answer})
-        return answer
 
-    # AI가 도구를 쓰지 않고 (내부 DB만으로 충분하다고 판단) 바로 답변한 경우
-    else:
-        answer = response_message.content
-        chat_history.append({"role": "assistant", "content": answer})
-        return answer
+    # max_iterations를 다 채워도 답변을 못 냈을 경우 강제 답변 생성 (안전장치)
+    print(
+        "    [에이전트 행동] ⚠️ 최대 탐색 횟수 도달. 현재까지의 정보로 보고서 작성 중..."
+    )
+    final_response = llm_client.chat.completions.create(
+        model=AI_MODEL, messages=chat_history, temperature=0.3
+    )
+    answer = final_response.choices[0].message.content
+    chat_history.append({"role": "assistant", "content": answer})
+
+    return answer
 
 
 # --- 대화형 CLI 메인 루프 ---

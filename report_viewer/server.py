@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import httpx
+from datetime import datetime, timezone, timedelta
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -28,6 +29,10 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class ChatMessageRequest(BaseModel):
+    message: str
+
+
 class ScheduleRequest(BaseModel):
     time: str
 
@@ -39,6 +44,8 @@ scheduler = AsyncIOScheduler()
 REPORT_DIR = os.environ.get("REPORT_DIR", "/app/OSINT_REPORT")
 os.makedirs(REPORT_DIR, exist_ok=True)
 CONFIG_FILE = os.path.join(REPORT_DIR, "config.json")
+CHAT_DIR = os.path.join(REPORT_DIR, "chats")
+os.makedirs(CHAT_DIR, exist_ok=True)
 
 # Try loading from possible env locations
 load_dotenv("/home/user/.osint_env")
@@ -189,9 +196,75 @@ def chat_api(req: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── Chat Session Endpoints ───────────────────────────────────────────
+@app.post("/api/chats")
+def create_chat():
+    now = datetime.now(timezone(timedelta(hours=9)))
+    session_id = now.strftime("%Y%m%d_%H%M%S")
+    session = {
+        "id": session_id,
+        "title": "새 채팅",
+        "created_at": now.isoformat(),
+        "display_messages": [],
+        "api_messages": [{"role": "system", "content": PROMPT["system_role"]}],
+    }
+    filepath = os.path.join(CHAT_DIR, f"chat_{session_id}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(session, f, ensure_ascii=False, indent=2)
+    return session
+
+
+@app.get("/api/chats")
+def list_chats():
+    sessions = []
+    for filepath in sorted(glob.glob(os.path.join(CHAT_DIR, "chat_*.json")), reverse=True):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                sessions.append({"id": data["id"], "title": data["title"], "created_at": data["created_at"]})
+        except Exception:
+            pass
+    return {"sessions": sessions}
+
+
+@app.get("/api/chats/{session_id}")
+def get_chat(session_id: str):
+    if "/" in session_id or ".." in session_id:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    filepath = os.path.join(CHAT_DIR, f"chat_{session_id}.json")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.post("/api/chats/{session_id}/message")
+def send_chat_message(session_id: str, req: ChatMessageRequest):
+    if "/" in session_id or ".." in session_id:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    filepath = os.path.join(CHAT_DIR, f"chat_{session_id}.json")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Not found")
+    with open(filepath, "r", encoding="utf-8") as f:
+        session = json.load(f)
+    api_messages = session.get("api_messages", [{"role": "system", "content": PROMPT["system_role"]}])
+    try:
+        answer = chat_turn(req.message, api_messages)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    now = datetime.now(timezone(timedelta(hours=9))).isoformat()
+    session["display_messages"].append({"role": "user", "content": req.message, "timestamp": now})
+    session["display_messages"].append({"role": "assistant", "content": answer, "timestamp": now})
+    session["api_messages"] = api_messages
+    if len(session["display_messages"]) == 2:
+        session["title"] = req.message[:40] + ("..." if len(req.message) > 40 else "")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(session, f, ensure_ascii=False, indent=2)
+    return {"reply": answer, "title": session["title"]}
+
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 

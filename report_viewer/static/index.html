@@ -1,30 +1,51 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI OSINT Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
 </head>
 <body>
     <div id="app-container">
-        <!-- Sidebar for Report List -->
+        <!-- Sidebar -->
         <aside id="sidebar" class="glass-panel">
             <header class="sidebar-header">
                 <div class="header-row">
                     <h1>OSINT</h1>
                     <button id="btn-settings" class="icon-btn" title="Schedule Options">⚙️</button>
                 </div>
-                <p>Daily Briefings</p>
+                <p>Intelligence Desk</p>
                 <button id="btn-generate" class="glow-btn">
                     <span class="btn-text">+ Generate Report</span>
                     <span class="btn-spinner hidden"></span>
                 </button>
+                <button id="btn-new-chat" class="glow-btn chat-btn">+ New Chat</button>
             </header>
-            <nav id="report-list">
-                <!-- Dynamically populated report items go here -->
-                <div class="loader-pulse"></div>
+
+            <nav id="sidebar-nav">
+                <!-- Reports Section -->
+                <div class="tree-section">
+                    <div class="tree-header" id="toggle-reports">
+                        <span class="tree-arrow" id="arrow-reports">▼</span>
+                        <span class="tree-label">📋 일일보고서</span>
+                    </div>
+                    <div class="tree-body" id="section-reports">
+                        <div class="loader-pulse"></div>
+                    </div>
+                </div>
+
+                <!-- Chats Section -->
+                <div class="tree-section">
+                    <div class="tree-header" id="toggle-chats">
+                        <span class="tree-arrow" id="arrow-chats">▼</span>
+                        <span class="tree-label">💬 채팅이력</span>
+                    </div>
+                    <div class="tree-body" id="section-chats">
+                        <p class="sidebar-empty">채팅 이력이 없습니다.</p>
+                    </div>
+                </div>
             </nav>
         </aside>
 
@@ -36,52 +57,47 @@
                     <span class="pulse-dot"></span> Live Analysis
                 </div>
             </header>
+
+            <!-- Report View -->
             <article id="report-body">
                 <p class="placeholder-text">Please select a report from the sidebar to view its details.</p>
             </article>
+
+            <!-- Generation Progress Overlay -->
             <div id="generation-progress" class="hidden">
                 <div class="terminal-header">&gt;_ OSINT_ANALYSIS_SEQUENCE_INITIATED</div>
                 <div id="terminal-logs"></div>
                 <div class="progress-bar-container"><div id="progress-bar-fill"></div></div>
             </div>
+
+            <!-- Chat View (replaces report-body when active) -->
+            <div id="chat-view" class="hidden">
+                <div id="chat-messages"></div>
+                <div id="chat-input-row">
+                    <input type="text" id="chat-input-main" placeholder="분석관에게 질문하십시오...">
+                    <button id="chat-send-main">
+                        <span id="chat-send-text">전송</span>
+                        <span id="chat-send-spinner" class="btn-spinner hidden"></span>
+                    </button>
+                </div>
+            </div>
         </main>
 
-        <!-- Right Side Panel for References -->
+        <!-- Right Side Reference Panel -->
         <aside id="reference-panel" class="glass-panel hidden">
             <header class="panel-header">
                 <h3>Reference Details</h3>
                 <button id="close-panel" aria-label="Close Panel">&times;</button>
             </header>
             <div id="reference-content">
-                <!-- Dynamically populated reference info goes here -->
                 <p class="placeholder-text">Click a reference link in the text to view details.</p>
             </div>
             <div id="iframe-container">
-                <!-- Iframe for URL loading -->
-                 <iframe id="reference-iframe" src="" frameborder="0" sandbox="allow-scripts allow-same-origin" title="Reference Content"></iframe>
-                 <div id="iframe-loader" class="hidden">Loading content...</div>
+                <iframe id="reference-iframe" src="" frameborder="0" sandbox="allow-scripts allow-same-origin" title="Reference Content"></iframe>
+                <div id="iframe-loader" class="hidden">Loading content...</div>
             </div>
         </aside>
 
-        <!-- AI Chat Widget -->
-        <div id="chat-widget" class="glass-panel collapsed">
-            <header class="chat-header" id="chat-header-toggle">
-                <div class="chat-title">
-                    <span class="chat-dot"></span> AI Assistant
-                </div>
-                <span class="toggle-icon">▲</span>
-            </header>
-            <div class="chat-body" id="chat-body">
-                <div class="chat-message system">
-                    Welcome to the OSINT Desk. How can I assist you with today's briefing?
-                </div>
-            </div>
-            <div class="chat-footer">
-                <input type="text" id="chat-input" placeholder="Ask AI...">
-                <button id="chat-send">Send</button>
-            </div>
-        </div>
-        
         <!-- Schedule Modal -->
         <div id="schedule-modal" class="modal-overlay hidden">
             <div class="modal-content glass-panel">
@@ -97,7 +113,7 @@
             </div>
         </div>
     </div>
-    
-    <script src="/static/app.js"></script>
+
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>

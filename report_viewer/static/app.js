@@ -1,53 +1,101 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const reportListContainer = document.getElementById("report-list");
-    const reportBody = document.getElementById("report-body");
-    const reportTitle = document.getElementById("report-title");
-    const referencePanel = document.getElementById("reference-panel");
-    const closePanelBtn = document.getElementById("close-panel");
+
+    // ─── DOM refs ────────────────────────────────────────────────────
+    const reportBody       = document.getElementById("report-body");
+    const reportTitle      = document.getElementById("report-title");
+    const referencePanel   = document.getElementById("reference-panel");
+    const closePanelBtn    = document.getElementById("close-panel");
     const referenceContent = document.getElementById("reference-content");
-    const referenceIframe = document.getElementById("reference-iframe");
-    const iframeLoader = document.getElementById("iframe-loader");
+    const referenceIframe  = document.getElementById("reference-iframe");
+    const iframeLoader     = document.getElementById("iframe-loader");
 
-    const btnGenerate = document.getElementById("btn-generate");
-    const btnGenerateText = btnGenerate.querySelector(".btn-text");
+    const btnGenerate        = document.getElementById("btn-generate");
+    const btnGenerateText    = btnGenerate.querySelector(".btn-text");
     const btnGenerateSpinner = btnGenerate.querySelector(".btn-spinner");
-    const genProgress = document.getElementById("generation-progress");
-    const termLogs = document.getElementById("terminal-logs");
-    const progressBarFill = document.getElementById("progress-bar-fill");
-    
-    const chatWidget = document.getElementById("chat-widget");
-    const chatHeaderToggle = document.getElementById("chat-header-toggle");
-    const chatBody = document.getElementById("chat-body");
-    const chatInput = document.getElementById("chat-input");
-    const chatSend = document.getElementById("chat-send");
+    const genProgress        = document.getElementById("generation-progress");
+    const termLogs           = document.getElementById("terminal-logs");
+    const progressBarFill    = document.getElementById("progress-bar-fill");
 
+    const btnNewChat       = document.getElementById("btn-new-chat");
+    const chatView         = document.getElementById("chat-view");
+    const chatMessages     = document.getElementById("chat-messages");
+    const chatInputMain    = document.getElementById("chat-input-main");
+    const chatSendMain     = document.getElementById("chat-send-main");
+    const chatSendText     = document.getElementById("chat-send-text");
+    const chatSendSpinner  = document.getElementById("chat-send-spinner");
+
+    const sectionReports  = document.getElementById("section-reports");
+    const sectionChats    = document.getElementById("section-chats");
+    const toggleReports   = document.getElementById("toggle-reports");
+    const toggleChats     = document.getElementById("toggle-chats");
+    const arrowReports    = document.getElementById("arrow-reports");
+    const arrowChats      = document.getElementById("arrow-chats");
+
+    // ─── State ───────────────────────────────────────────────────────
     let currentReferences = {};
+    let currentChatId     = null;
+    let currentMode       = "report"; // "report" | "chat"
 
-    // Load initial report list
+    // ─── Init ────────────────────────────────────────────────────────
     fetchReports();
+    fetchChats();
+    setupTreeToggles();
 
+    // ─── View switchers ──────────────────────────────────────────────
+    function showReportView() {
+        currentMode = "report";
+        reportBody.classList.remove("hidden");
+        chatView.classList.add("hidden");
+        genProgress.classList.add("hidden");
+    }
+
+    function showChatView() {
+        currentMode = "chat";
+        reportBody.classList.add("hidden");
+        chatView.classList.remove("hidden");
+        genProgress.classList.add("hidden");
+    }
+
+    // ─── Tree Sidebar Toggles ────────────────────────────────────────
+    function setupTreeToggles() {
+        toggleReports.addEventListener("click", () => {
+            const collapsed = sectionReports.classList.toggle("collapsed");
+            arrowReports.classList.toggle("collapsed", collapsed);
+        });
+        toggleChats.addEventListener("click", () => {
+            const collapsed = sectionChats.classList.toggle("collapsed");
+            arrowChats.classList.toggle("collapsed", collapsed);
+        });
+    }
+
+    function selectItem(el) {
+        document.querySelectorAll(".report-item.active").forEach(e => e.classList.remove("active"));
+        el.classList.add("active");
+    }
+
+    // ─── Reference Panel ─────────────────────────────────────────────
     closePanelBtn.addEventListener("click", () => {
         referencePanel.classList.add("hidden");
-        document.querySelectorAll(".interactive-sentence.active").forEach(el => el.classList.remove("active"));
+        document.querySelectorAll(".interactive-sentence.active").forEach(e => e.classList.remove("active"));
         referenceIframe.src = "";
     });
 
+    // ─── Reports ─────────────────────────────────────────────────────
     async function fetchReports() {
         try {
-            const res = await fetch("/api/reports");
+            const res  = await fetch("/api/reports");
             const data = await res.json();
-            reportListContainer.innerHTML = "";
-            
+            sectionReports.innerHTML = "";
+
             if (data.reports.length === 0) {
-                reportListContainer.innerHTML = "<p style='padding:1rem;color:var(--text-secondary);'>No reports found.</p>";
+                sectionReports.innerHTML = "<p class='sidebar-empty'>생성된 보고서가 없습니다.</p>";
                 return;
             }
 
             data.reports.forEach((report, index) => {
                 const item = document.createElement("div");
                 item.className = "report-item";
-                
-                // Parse date from filename: 일일보고_20260408.txt
+
                 let dateStr = "Unknown Date";
                 const match = report.filename.match(/_(\d{8})/);
                 if (match) {
@@ -60,13 +108,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="report-item-date">${report.filename}</div>
                 `;
                 item.addEventListener("click", () => {
-                    document.querySelectorAll(".report-item").forEach(el => el.classList.remove("active"));
-                    item.classList.add("active");
+                    selectItem(item);
                     loadReport(report.filename);
                 });
-                reportListContainer.appendChild(item);
+                sectionReports.appendChild(item);
 
-                // Auto-load first report
                 if (index === 0) {
                     item.classList.add("active");
                     loadReport(report.filename);
@@ -74,18 +120,17 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         } catch (err) {
             console.error(err);
-            reportListContainer.innerHTML = "<p>Error loading reports.</p>";
+            sectionReports.innerHTML = "<p class='sidebar-empty'>보고서 로드 실패.</p>";
         }
     }
 
     async function loadReport(filename) {
+        showReportView();
+        reportBody.innerHTML = `<div class="loader-pulse"></div>`;
+        reportTitle.textContent = "Loading...";
         try {
-            reportBody.innerHTML = `<div class="loader-pulse"></div>`;
-            reportTitle.textContent = "Loading...";
-            
-            const res = await fetch(`/api/reports/${filename}`);
+            const res  = await fetch(`/api/reports/${filename}`);
             const data = await res.json();
-            
             reportTitle.textContent = filename;
             parseAndRenderReport(data.content);
         } catch (err) {
@@ -95,36 +140,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function parseAndRenderReport(text) {
-        // 1. Extract Reference Table
         currentReferences = {};
-        // Find markdown table lines with references like | [1] | Source | Title ...
         const refLines = text.match(/\|\s*\[(\d+)\]\s*\|.*\|/g);
         if (refLines) {
             refLines.forEach(line => {
-                // simple split by |
                 const cols = line.split("|").map(s => s.trim()).filter(s => s.length > 0);
                 if (cols.length >= 4) {
                     const numMatch = cols[0].match(/\[(\d+)\]/);
                     if (numMatch) {
                         const num = numMatch[1];
-                        const source = cols[1];
-                        const title = cols[2];
-                        const time = cols[3];
-                        
-                        // Look for http in the whole line
-                        let urlMatch = line.match(/(https?:\/\/[^\s|]+)/);
-                        let url = urlMatch ? urlMatch[1] : "";
-                        
-                        currentReferences[num] = { num, source, title, time, url };
+                        const urlMatch = line.match(/(https?:\/\/[^\s|]+)/);
+                        currentReferences[num] = {
+                            num, source: cols[1], title: cols[2], time: cols[3],
+                            url: urlMatch ? urlMatch[1] : ""
+                        };
                     }
                 }
             });
         }
 
-        // 2. Format Body Content
-        // Remove Reference table from main view to avoid clutter, or keep it. Let's keep it but formatted.
         let htmlBody = text
-            .replace(/</g, "&lt;").replace(/>/g, "&gt;") // sanitize basic
+            .replace(/</g, "&lt;").replace(/>/g, "&gt;")
             .replace(/^###\s+(.*$)/gm, '<h4>$1</h4>\n\n')
             .replace(/^##\s+(.*$)/gm, '<h3>$1</h3>\n\n')
             .replace(/^#\s+(.*$)/gm, '<h2>$1</h2>\n\n')
@@ -133,50 +169,57 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/={10,}/g, '<hr>\n\n')
             .replace(/-{10,}/g, '<hr>\n\n');
 
-        // Split by double newline to wrap paragraphs
-        let blocks = htmlBody.split(/\n\s*\n/).filter(b => b.trim().length > 0);
+        const blocks = htmlBody.split(/\n\s*\n/).filter(b => b.trim().length > 0);
         htmlBody = blocks.map(block => {
             if (block.trim().startsWith('<h') || block.trim().startsWith('<hr')) return block;
             if (block.startsWith('|')) {
-                // Format table
                 const rows = block.split('\n').filter(r => r.trim());
-                let tableHtml = '<table style="width:100%; border-collapse:collapse; margin-top:20px; font-size:0.9rem;">';
-                rows.forEach((row, rowIndex) => {
-                    if (row.includes('---')) return; // skip markdown divider
-                    const tag = rowIndex === 0 ? 'th' : 'td';
-                    const cells = row.split('|').map(c => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length - 1);
-                    tableHtml += '<tr>' + cells.map(c => `<${tag} style="border:1px solid #334155; padding:8px;">${c}</${tag}>`).join('') + '</tr>';
+                let tableHtml = '<table style="width:100%;border-collapse:collapse;margin-top:20px;font-size:0.9rem;">';
+                rows.forEach((row, ri) => {
+                    if (row.includes('---')) return;
+                    const tag = ri === 0 ? 'th' : 'td';
+                    const cells = row.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+                    tableHtml += '<tr>' + cells.map(c => `<${tag} style="border:1px solid #334155;padding:8px;">${c}</${tag}>`).join('') + '</tr>';
                 });
-                tableHtml += '</table>';
-                return tableHtml;
+                return tableHtml + '</table>';
             }
-            // List items
             if (block.startsWith('- ')) {
-                 return '<ul>' + block.split('\n').map(l => {
-                     let t = l.replace(/^- /, '');
-                     t = wrapSentencesWithReferences(t);
-                     return `<li style="margin-bottom:10px;">${t}</li>`;
-                 }).join('') + '</ul>';
+                return '<ul>' + block.split('\n').map(l => {
+                    const t = wrapSentencesWithReferences(l.replace(/^- /, ''));
+                    return `<li style="margin-bottom:10px;">${t}</li>`;
+                }).join('') + '</ul>';
             }
-            
-            // Text paragraph
-            let wrappedContent = wrapSentencesWithReferences(block);
-            return `<p>${wrappedContent}</p>`;
+            return `<p>${wrapSentencesWithReferences(block)}</p>`;
         }).join('');
 
         reportBody.innerHTML = htmlBody;
+        attachSentenceListeners(reportBody);
+    }
 
-        // Attach click listeners to interactive sentences
-        document.querySelectorAll(".interactive-sentence").forEach(el => {
-            el.addEventListener("click", function() {
-                // Toggle active state
+    function wrapSentencesWithReferences(text) {
+        let result = "";
+        const sentences = text.split(/(?<=\.\s|\]\.\s|\n)/);
+        sentences.forEach(sentence => {
+            const citationMatch = sentence.match(/\[(\d+)\]/g);
+            if (citationMatch) {
+                const nums = citationMatch.map(s => s.replace(/[\[\]]/g, ''));
+                let formatted = sentence.replace(/\[\d+\]/g, m => `<span class="ref-tag">${m}</span>`);
+                result += `<span class="interactive-sentence" data-refs="${nums.join(',')}">${formatted}</span>`;
+            } else {
+                result += sentence;
+            }
+        });
+        return result;
+    }
+
+    function attachSentenceListeners(container) {
+        container.querySelectorAll(".interactive-sentence").forEach(el => {
+            el.addEventListener("click", function () {
                 const isActive = this.classList.contains("active");
-                document.querySelectorAll(".interactive-sentence.active").forEach(activeEl => activeEl.classList.remove("active"));
-                
+                document.querySelectorAll(".interactive-sentence.active").forEach(e => e.classList.remove("active"));
                 if (!isActive) {
                     this.classList.add("active");
-                    const refNums = this.getAttribute("data-refs").split(",");
-                    openReferencePanel(refNums);
+                    openReferencePanel(this.getAttribute("data-refs").split(","));
                 } else {
                     referencePanel.classList.add("hidden");
                 }
@@ -184,47 +227,9 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function wrapSentencesWithReferences(text) {
-        // Regex to find sentences containing references [x]
-        // This regex looks for chunks of text optionally ending with [x], and wraps them.
-        // It's a heuristic for Korean text usually ending with '다 [1].' or '다. [1]' or '다 [1]'
-        
-        let result = "";
-        let currentIndex = 0;
-        
-        // Find all [d] occurrences
-        const regex = /\[(\d+)\]/g;
-        let match;
-        
-        // We will process the text by finding 'sentences' around the tags.
-        // For simplicity: split text into sentences by `. `, end of string, or `\n`
-        const sentences = text.split(/(?<=\.\s|\]\.\s|\n)/);
-        
-        sentences.forEach(sentence => {
-            // See if this sentence has any citations
-            const citationMatch = sentence.match(/\[(\d+)\]/g);
-            if (citationMatch) {
-                // Extract numbers
-                const nums = citationMatch.map(s => s.replace(/[\[\]]/g, ''));
-                
-                // Format the citations inside the sentence to look nicer
-                let formattedSentence = sentence.replace(/\[\d+\]/g, match => {
-                    return `<span class="ref-tag">${match}</span>`;
-                });
-                
-                result += `<span class="interactive-sentence" data-refs="${nums.join(',')}">${formattedSentence}</span>`;
-            } else {
-                result += sentence;
-            }
-        });
-        
-        return result;
-    }
-
     function openReferencePanel(refNums) {
         referenceContent.innerHTML = "";
         let firstUrl = "";
-
         refNums.forEach(num => {
             const ref = currentReferences[num.trim()];
             if (ref) {
@@ -237,16 +242,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     ${ref.url ? `<a href="${ref.url}" target="_blank" class="ref-link-btn">Open in New Tab</a>` : ''}
                 `;
                 referenceContent.appendChild(card);
-                
-                if (ref.url && !firstUrl) {
-                    firstUrl = ref.url;
-                }
+                if (ref.url && !firstUrl) firstUrl = ref.url;
             }
         });
-
         if (refNums.length > 0) {
             referencePanel.classList.remove("hidden");
-            
             if (firstUrl) {
                 referenceIframe.style.display = "block";
                 iframeLoader.classList.remove("hidden");
@@ -255,24 +255,17 @@ document.addEventListener("DOMContentLoaded", () => {
             } else {
                 referenceIframe.style.display = "none";
                 referenceIframe.src = "";
-                
-                const noUrlMsg = document.createElement("div");
-                noUrlMsg.className = "placeholder-text";
-                noUrlMsg.style.padding = "2rem";
-                noUrlMsg.style.textAlign = "center";
-                noUrlMsg.textContent = "No URL provided for this reference.";
-                referenceContent.appendChild(noUrlMsg);
             }
         }
     }
 
-    // --- Generate Report Logic ---
+    // ─── Generate Report (Streaming) ─────────────────────────────────
     btnGenerate.addEventListener("click", async () => {
         btnGenerate.disabled = true;
         btnGenerateText.style.display = "none";
         btnGenerateSpinner.classList.remove("hidden");
-        
-        // Show terminal UI
+
+        showReportView();
         reportBody.classList.add("hidden");
         reportTitle.textContent = "Live Analysis in Progress...";
         genProgress.classList.remove("hidden");
@@ -280,48 +273,34 @@ document.addEventListener("DOMContentLoaded", () => {
         progressBarFill.style.width = "0%";
 
         const streamOutput = document.createElement("pre");
-        streamOutput.style.whiteSpace = "pre-wrap";
-        streamOutput.style.margin = "0";
-        streamOutput.style.fontFamily = "monospace";
-        streamOutput.style.lineHeight = "1.5";
+        streamOutput.style.cssText = "white-space:pre-wrap;margin:0;font-family:monospace;line-height:1.5;";
         termLogs.appendChild(streamOutput);
 
         try {
             const res = await fetch("/api/generate_stream", { method: "POST" });
             progressBarFill.style.width = "30%";
-            
-            const reader = res.body.getReader();
+            const reader  = res.body.getReader();
             const decoder = new TextDecoder("utf-8");
-            
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                
-                const chunk = decoder.decode(value, {stream: true});
-                streamOutput.textContent += chunk;
+                streamOutput.textContent += decoder.decode(value, { stream: true });
                 termLogs.scrollTop = termLogs.scrollHeight;
-                
-                // Keep progress bar gently moving between 30 and 95
-                let w = parseFloat(progressBarFill.style.width) || 30;
+                const w = parseFloat(progressBarFill.style.width) || 30;
                 if (w < 95) progressBarFill.style.width = (w + 0.5) + "%";
             }
-            
             progressBarFill.style.width = "100%";
-            streamOutput.textContent += "\n[✔] DAILY BRIEFING GENERATED SUCCESSFULLY. INITIALIZING UI RENDERING...";
-            
+            streamOutput.textContent += "\n[✔] DAILY BRIEFING GENERATED SUCCESSFULLY.";
             await new Promise(r => setTimeout(r, 800));
-
             await fetchReports();
         } catch (err) {
-            console.error("Generation error:", err);
+            console.error(err);
             streamOutput.textContent += "\n[X] SYSTEM ERROR: CONNECTION SEVERED.";
             progressBarFill.style.background = "red";
-            alert("Error connecting to server for report generation.");
         } finally {
             btnGenerate.disabled = false;
             btnGenerateText.style.display = "inline-block";
             btnGenerateSpinner.classList.add("hidden");
-            
             setTimeout(() => {
                 genProgress.classList.add("hidden");
                 reportBody.classList.remove("hidden");
@@ -329,89 +308,162 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // --- Chat Logic ---
-    chatHeaderToggle.addEventListener("click", () => {
-        chatWidget.classList.toggle("collapsed");
-    });
-    
-    chatSend.addEventListener("click", sendChatMessage);
-    chatInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") sendChatMessage();
+    // ─── Chat Sessions ────────────────────────────────────────────────
+    async function fetchChats() {
+        try {
+            const res  = await fetch("/api/chats");
+            const data = await res.json();
+            sectionChats.innerHTML = "";
+            if (data.sessions.length === 0) {
+                sectionChats.innerHTML = "<p class='sidebar-empty'>채팅 이력이 없습니다.</p>";
+                return;
+            }
+            data.sessions.forEach(s => sectionChats.appendChild(buildChatItem(s)));
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function buildChatItem(session) {
+        const item = document.createElement("div");
+        item.className = "report-item";
+        item.dataset.chatId = session.id;
+        const date = (session.created_at || "").substring(0, 10);
+        item.innerHTML = `
+            <div class="report-item-title">${escHtml(session.title)}</div>
+            <div class="report-item-date">${date}</div>
+        `;
+        item.addEventListener("click", () => {
+            selectItem(item);
+            loadChat(session.id);
+        });
+        return item;
+    }
+
+    async function loadChat(sessionId) {
+        showChatView();
+        currentChatId = sessionId;
+        chatMessages.innerHTML = `<div class="loader-pulse"></div>`;
+        reportTitle.textContent = "Loading...";
+        try {
+            const res     = await fetch(`/api/chats/${sessionId}`);
+            const session = await res.json();
+            reportTitle.textContent = session.title;
+            chatMessages.innerHTML = "";
+            session.display_messages.forEach(msg => appendChatMsg(msg.role, msg.content));
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // + New Chat button
+    btnNewChat.addEventListener("click", async () => {
+        try {
+            const res     = await fetch("/api/chats", { method: "POST" });
+            const session = await res.json();
+            currentChatId = session.id;
+
+            // Remove placeholder if exists
+            const placeholder = sectionChats.querySelector(".sidebar-empty");
+            if (placeholder) placeholder.remove();
+
+            const item = buildChatItem(session);
+            sectionChats.insertBefore(item, sectionChats.firstChild);
+            selectItem(item);
+
+            // Expand chats section
+            sectionChats.classList.remove("collapsed");
+            arrowChats.classList.remove("collapsed");
+
+            reportTitle.textContent = "새 채팅";
+            chatMessages.innerHTML = "";
+            appendChatMsg("system-msg", "새로운 분석 세션이 시작되었습니다.<br><span style='font-size:0.82rem;opacity:0.7;'>내부 DB + 실시간 웹 검색이 자동으로 수행됩니다.</span>");
+            showChatView();
+            chatInputMain.focus();
+        } catch (err) {
+            console.error(err);
+            alert("채팅 세션 생성에 실패했습니다.");
+        }
     });
 
-    async function sendChatMessage() {
-        const text = chatInput.value.trim();
+    // Send message
+    chatSendMain.addEventListener("click", sendMessage);
+    chatInputMain.addEventListener("keydown", e => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    async function sendMessage() {
+        if (!currentChatId) return;
+        const text = chatInputMain.value.trim();
         if (!text) return;
-        
-        appendChatMessage(text, "user");
-        chatInput.value = "";
-        
-        const loadingMsg = appendChatMessage("Thinking...", "ai", true);
-        
+
+        chatInputMain.value = "";
+        chatSendMain.disabled = true;
+        chatSendText.style.display = "none";
+        chatSendSpinner.classList.remove("hidden");
+
+        appendChatMsg("user", escHtml(text));
+        const thinkingEl = appendChatMsg("assistant thinking", "🧠 분석 중...");
+
         try {
-            const res = await fetch("/api/chat", {
+            const res = await fetch(`/api/chats/${currentChatId}/message`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: text })
             });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || "Server error");
+            }
             const data = await res.json();
-            
-            loadingMsg.remove();
-            appendChatMessage(data.reply, "ai");
+            thinkingEl.remove();
+            appendChatMsg("assistant", data.reply);
+
+            // Update title
+            if (data.title && data.title !== "새 채팅") {
+                reportTitle.textContent = data.title;
+                const sidebarItem = sectionChats.querySelector(`[data-chat-id="${currentChatId}"] .report-item-title`);
+                if (sidebarItem) sidebarItem.textContent = data.title;
+            }
         } catch (err) {
-            console.error(err);
-            loadingMsg.remove();
-            appendChatMessage("Error: Could not connect to the AI engine.", "system");
+            thinkingEl.remove();
+            appendChatMsg("assistant", `[오류] ${escHtml(err.message)}`);
+        } finally {
+            chatSendMain.disabled = false;
+            chatSendText.style.display = "inline";
+            chatSendSpinner.classList.add("hidden");
         }
     }
-    
-    function appendChatMessage(text, sender, isLoading = false) {
+
+    function appendChatMsg(role, content) {
         const div = document.createElement("div");
-        div.className = `chat-message ${sender}`;
-        
-        let formatted = text
-            .replace(/</g, "&lt;").replace(/>/g, "&gt;") 
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
-        
-        if (sender === "ai") {
+        div.className = `chat-msg ${role}`;
+        const safeContent = (content == null) ? "[응답 없음]" : String(content);
+        if (role === "assistant" || role.startsWith("assistant")) {
+            let formatted = safeContent
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
             formatted = wrapSentencesWithReferences(formatted);
+            div.innerHTML = formatted;
+            attachSentenceListeners(div);
+        } else {
+            div.innerHTML = safeContent;
         }
-        
-        div.innerHTML = formatted;
-        
-        if (sender === "ai") {
-             div.querySelectorAll(".interactive-sentence").forEach(el => {
-                el.addEventListener("click", function() {
-                    const isActive = this.classList.contains("active");
-                    document.querySelectorAll(".interactive-sentence.active").forEach(activeEl => activeEl.classList.remove("active"));
-                    
-                    if (!isActive) {
-                        this.classList.add("active");
-                        const refNums = this.getAttribute("data-refs").split(",");
-                        // Uses the current report's references if available
-                        openReferencePanel(refNums);
-                    } else {
-                        referencePanel.classList.add("hidden");
-                    }
-                });
-             });
-        }
-        
-        if (isLoading) div.style.opacity = "0.7";
-        chatBody.appendChild(div);
-        chatBody.scrollTop = chatBody.scrollHeight;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
         return div;
     }
 
-    /* -------------------------------------------
-       Schedule Settings UI & API
-    ------------------------------------------- */
-    const scheduleModal = document.getElementById("schedule-modal");
-    const btnSettings = document.getElementById("btn-settings");
+    function escHtml(str) {
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // ─── Schedule Modal ───────────────────────────────────────────────
+    const scheduleModal    = document.getElementById("schedule-modal");
+    const btnSettings      = document.getElementById("btn-settings");
     const btnScheduleCancel = document.getElementById("btn-schedule-cancel");
-    const btnScheduleSave = document.getElementById("btn-schedule-save");
-    const timeInput = document.getElementById("schedule-time");
+    const btnScheduleSave  = document.getElementById("btn-schedule-save");
+    const timeInput        = document.getElementById("schedule-time");
 
     async function loadSchedule() {
         try {
@@ -420,25 +472,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await res.json();
                 timeInput.value = data.time || "09:00";
             }
-        } catch (e) {
-            console.error("Failed to load schedule:", e);
-        }
+        } catch (e) { console.error(e); }
     }
-    
-    if(btnSettings) {
+
+    if (btnSettings) {
         btnSettings.addEventListener("click", () => {
             scheduleModal.classList.remove("hidden");
             loadSchedule();
         });
-
-        btnScheduleCancel.addEventListener("click", () => {
-            scheduleModal.classList.add("hidden");
-        });
-
+        btnScheduleCancel.addEventListener("click", () => scheduleModal.classList.add("hidden"));
         btnScheduleSave.addEventListener("click", async () => {
             const timeVal = timeInput.value;
             if (!timeVal) return;
-            
             btnScheduleSave.textContent = "Saving...";
             try {
                 const res = await fetch("/api/schedule", {
@@ -447,17 +492,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     body: JSON.stringify({ time: timeVal })
                 });
                 if (res.ok) {
-                    alert(`스케줄이 매일 ${timeVal} 시간대로 저장되었습니다!`);
+                    alert(`스케줄이 매일 ${timeVal}로 저장되었습니다!`);
                     scheduleModal.classList.add("hidden");
                 } else {
                     alert("설정 저장에 실패했습니다.");
                 }
-            } catch(e) {
+            } catch (e) {
                 alert("서버와 통신할 수 없습니다.");
             } finally {
                 btnScheduleSave.textContent = "Save Schedule";
             }
         });
     }
-
 });
