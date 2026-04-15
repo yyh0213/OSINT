@@ -98,6 +98,23 @@ async def get_report(filename: str):
     return {"filename": filename, "content": content}
 
 
+INTELLIGENCE_URL = os.environ.get("INTELLIGENCE_URL", "http://intelligence:5050")
+
+
+@app.get("/api/reliability")
+async def get_reliability():
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{INTELLIGENCE_URL}/api/reliability")
+            res.raise_for_status()
+            # reliability_viewer.py 는 rows 배열을 바로 반환 → {"data": [...]} 로 래핑
+            return {"data": res.json()}
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="intelligence 서비스에 연결할 수 없습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/generate")
 def generate_report_api():
     global global_chat_history

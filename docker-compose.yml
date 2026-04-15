@@ -1,12 +1,31 @@
 services:
+  intelligence:
+    build: ../intelligence # intelligence 폴더 빌드
+    container_name: intelligence
+    ports:
+      - "5050:5050" # 외부에서도 직접 접근 가능 (선택)
+    networks:
+      - osint-net
+    restart: unless-stopped
+
   osint-dashboard:
-    build: .                   # 현재 폴더(Dockerfile)로 직접 빌드
-    image: starmoby/osint-dashboard:latest   # 빌드 후 이 이름으로 태깅
+    build: .
+    image: starmoby/osint-dashboard:latest
     container_name: osint-dashboard
     ports:
       - "8000:8000"
     volumes:
-      - ./OSINT_REPORT:/app/OSINT_REPORT     # 보고서 영구 보존
+      - //192.168.45.80/etc_archive/OSINT_REPORT:/app/OSINT_REPORT
+    environment:
+      - INTELLIGENCE_URL=http://intelligence:5050 # 컨테이너 이름으로 자동 DNS 해석
     env_file:
       - .env
+    depends_on:
+      - intelligence # intelligence 먼저 시작
+    networks:
+      - osint-net
     restart: unless-stopped
+
+networks:
+  osint-net:
+    driver: bridge

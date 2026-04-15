@@ -22,6 +22,7 @@
                     <span class="btn-spinner hidden"></span>
                 </button>
                 <button id="btn-new-chat" class="glow-btn chat-btn">+ New Chat</button>
+                <button id="btn-reliability" class="glow-btn rel-btn">📊 매체 신뢰도</button>
             </header>
 
             <nav id="sidebar-nav">
@@ -79,6 +80,49 @@
                         <span id="chat-send-text">전송</span>
                         <span id="chat-send-spinner" class="btn-spinner hidden"></span>
                     </button>
+                </div>
+            </div>
+
+            <!-- Reliability View -->
+            <div id="reliability-view" class="hidden">
+                <div class="rel-legend-container glass-panel">
+                    <h3>💡 지표 및 상태 가이드 (Metrics Guide)</h3>
+                    <div class="rel-legends">
+                        <div class="legend-item">
+                            <strong>Delta (독창성 델타)</strong>
+                            <p>기존 보도들에서 볼 수 없는 새로운 팩트, 인사이트의 양 (10점 만점). 낮으면 타 매체 의존 의심.</p>
+                        </div>
+                        <div class="legend-item">
+                            <strong>Richness (정보 밀도)</strong>
+                            <p>기사가 포함하는 구체적 수치, 인용, 고유명사 등의 밀도 (10점 만점).</p>
+                        </div>
+                        <div class="legend-item">
+                            <strong>Strikes (표절 경고)</strong>
+                            <p>선행 기사와 코사인 유사도가 90% 이상이면서 델타 점수가 2.0 미만인 기사 발행 시 누적. 3회 이상시 제재.</p>
+                        </div>
+                        <div class="legend-item status-legend">
+                            <div><span class="badge badge-trusted">TRUSTED</span> : 우수 매체 (승격됨)</div>
+                            <div><span class="badge badge-probation">PROBATION</span> : 일반 매체 (기본)</div>
+                            <div><span class="badge badge-blacklisted">BLACKLISTED</span> : 어뷰징 차단됨</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="rel-table-container">
+                    <table id="reliability-table" class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>Source (매체명)</th>
+                                <th>Articles (수집건수)</th>
+                                <th>Delta (독창성)</th>
+                                <th>Richness (밀도)</th>
+                                <th>Strikes (경고)</th>
+                                <th>Status (상태)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reliability-tbody">
+                            <!-- JS will populate -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </main>

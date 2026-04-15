@@ -24,6 +24,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatSendText     = document.getElementById("chat-send-text");
     const chatSendSpinner  = document.getElementById("chat-send-spinner");
 
+    const btnReliability   = document.getElementById("btn-reliability");
+    const reliabilityView  = document.getElementById("reliability-view");
+    const reliabilityTbody = document.getElementById("reliability-tbody");
+
     const sectionReports  = document.getElementById("section-reports");
     const sectionChats    = document.getElementById("section-chats");
     const toggleReports   = document.getElementById("toggle-reports");
@@ -46,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
         currentMode = "report";
         reportBody.classList.remove("hidden");
         chatView.classList.add("hidden");
+        if(reliabilityView) reliabilityView.classList.add("hidden");
         genProgress.classList.add("hidden");
     }
 
@@ -53,7 +58,17 @@ document.addEventListener("DOMContentLoaded", () => {
         currentMode = "chat";
         reportBody.classList.add("hidden");
         chatView.classList.remove("hidden");
+        if(reliabilityView) reliabilityView.classList.add("hidden");
         genProgress.classList.add("hidden");
+    }
+
+    function showReliabilityView() {
+        currentMode = "reliability";
+        reportBody.classList.add("hidden");
+        chatView.classList.add("hidden");
+        if(reliabilityView) reliabilityView.classList.remove("hidden");
+        genProgress.classList.add("hidden");
+        fetchReliability();
     }
 
     // ─── Tree Sidebar Toggles ────────────────────────────────────────
@@ -385,6 +400,53 @@ document.addEventListener("DOMContentLoaded", () => {
             alert("채팅 세션 생성에 실패했습니다.");
         }
     });
+
+    // ─── Reliability View ────────────────────────────────────────────
+    async function fetchReliability() {
+        if (!reliabilityTbody) return;
+        reliabilityTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 3rem;"><div class="loader-pulse" style="margin: 0 auto;"></div></td></tr>`;
+        try {
+            const res = await fetch("/api/reliability");
+            const data = await res.json();
+            reliabilityTbody.innerHTML = "";
+            if (!data.data || data.data.length === 0) {
+                reliabilityTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 2rem; color: var(--text-secondary);">수집된 매체 신뢰도 데이터가 없습니다.</td></tr>`;
+                return;
+            }
+            data.data.forEach(row => {
+                const tr = document.createElement("tr");
+                let badgeClass = "badge-probation";
+                if (row.status === "TRUSTED") badgeClass = "badge-trusted";
+                if (row.status === "BLACKLISTED") badgeClass = "badge-blacklisted";
+                
+                // Fallback for delta property name which was renamed in SQLite previously
+                const deltaProp = row.avg_delta_score != null ? row.avg_delta_score : row.delta_contribution;
+                const richnessValue = Number(row.avg_richness_score).toFixed(1);
+                const deltaValue = Number(deltaProp).toFixed(1);
+                
+                tr.innerHTML = `
+                    <td><strong>${escHtml(row.source_name)}</strong></td>
+                    <td>${row.total_articles}</td>
+                    <td>${deltaValue} / 10</td>
+                    <td>${richnessValue} / 10</td>
+                    <td style="color:${row.copycat_strikes > 0 ? '#ef4444' : 'inherit'}; font-weight:${row.copycat_strikes > 0 ? 'bold' : 'normal'}">${row.copycat_strikes}</td>
+                    <td><span class="badge ${badgeClass}">${escHtml(row.status)}</span></td>
+                `;
+                reliabilityTbody.appendChild(tr);
+            });
+        } catch (err) {
+            console.error(err);
+            reliabilityTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#ef4444; padding: 2rem;">데이터를 불러오는데 실패했습니다.</td></tr>`;
+        }
+    }
+
+    if (btnReliability) {
+        btnReliability.addEventListener("click", () => {
+            document.querySelectorAll(".report-item.active").forEach(e => e.classList.remove("active"));
+            reportTitle.textContent = "📊 매체 신뢰도 (Source Reliability)";
+            showReliabilityView();
+        });
+    }
 
     // Send message
     chatSendMain.addEventListener("click", sendMessage);
