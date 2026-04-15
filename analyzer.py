@@ -7,6 +7,8 @@ from pathlib import Path
 import textwrap
 from duckduckgo_search import DDGS
 import json
+from qdrant_client.http import models
+import time
 
 # --- 1. 기본 설정 ---
 DB_IP = os.environ.get("DB_IP", "192.168.45.80")
@@ -38,20 +40,25 @@ qdrant = QdrantClient(host=DB_IP, port=QDRANT_PORT)
 PROMPT = {
     "system_role": "당신은 독립 정보국의 수석 정보 분석관(Chief Intelligence Analyst)입니다. 주관적 추측을 배제하고 오직 제공된 데이터의 구체적 근거에 기반하여 건조하고 명확하게 답변하십시오. 또한 모든 팩트와 주장의 끝에는 반드시 제공된 데이터의 출처 번호(예: [1], [3])를 인용 부호로 표기해야 합니다.",
     "daily_report": """
-    아래 제공된 최신 OSINT 데이터를 바탕으로 '일일 종합 정보 브리핑'을 작성하십시오.
-    특히 각 데이터의 [수집일시]를 면밀히 분석하여, 과거의 정보와 최근 24시간 이내의 새로운 동향을 엄격히 구분하십시오.
+    당신은 수석 정보 분석관입니다. 아래 제공된 최신 OSINT 데이터와 [현재 시스템 시각]을 기준으로 '일일 종합 정보 브리핑'을 작성하십시오.
+
+    [작성 시점 및 시간 기준 엄수]
+    - 🕒 현재 시스템 시각: {current_time}
+    - 24시간 이내 기준: 위 현재 시각으로부터 역산하여 '정확히 24시간 이내'에 수집된 데이터([수집일시] 참조)만 '신규 동향(New Updates)' 및 'Executive Summary'에 포함하십시오.
+    - 24시간이 지난 데이터는 오직 '배경 설명(Background)'이나 맥락 용도로만 사용해야 하며, 절대 오늘의 주요 뉴스로 포장하지 마십시오.
 
     [작성 원칙 - 델타(Delta) 분석 지침]
-    1. 단순 나열을 금지합니다. 이전 상황(Background)에서 무엇이, 어떻게 변화(New Updates)했는지 '변화점'을 중심으로 서술하십시오.
-    2. 상충하는 데이터가 있을 경우, 수집일시가 가장 최근인 것을 현재의 팩트로 간주하고 이전 데이터는 맥락 설명용으로만 사용하십시오.
-    3. 각 항목의 내용을 서술할 때, 반드시 문장 끝에 출처 번호를 기재하십시오. (예: ...로 상황이 반전됨 [2].)
+    1. 시간 역전 금지: 24시간 이전의 사건을 오늘 발생한 것처럼 서술하는 것을 엄격히 금지합니다.
+    2. 단순 나열 금지: 이전 상황에서 무엇이, 어떻게 변화했는지 '변화점'을 중심으로 서술하십시오. 24시간 내 변화가 없다면 '특이동향 없음'으로 명시하십시오.
+    3. 상충하는 데이터가 있을 경우, 수집일시가 가장 최근인 것을 현재의 팩트로 간주하십시오.
+    4. 각 항목의 내용을 서술할 때, 반드시 문장 끝에 출처 번호를 기재하십시오. (예: ...로 상황이 반전됨 [2].)
 
     [보고서 구조]
-    🔴 1. Executive Summary (24시간 내 발생한 가장 치명적인 국면 전환 3가지 요약)
-    🌍 2. 지정학 및 군사 동향 (이전 전황과의 차이점, 신규 병력/자산 이동 중심)
-    💰 3. 경제 및 공급망 동향 (시장 지표의 어제 대비 등락 및 정책 변화)
+    🔴 1. Executive Summary (현재 시각 기준 24시간 내 발생한 가장 치명적인 국면 전환 최대 3가지. 24시간 내 주요 뉴스가 없다면 '특이 전환 없음' 명시)
+    🌍 2. 지정학 및 군사 동향 (이전 전황(Background)과 최근 24시간(New Updates)을 명확히 분리하여 서술)
+    💰 3. 경제 및 공급망 동향 (시장 지표의 등락 및 정책 변화. 24시간 이내 데이터 위주)
     👁️ 4. 잠재적 위협 및 이상 징후 (Blind Spots)
-    📚 5. References (참고 출처 목록. 반드시 표에 "링크(URL)" 열을 추가하여 실제 URL 주소를 포함시킬 것)
+    📚 5. References (참고 출처 목록. 반드시 표에 "수집일시", "제목", "출처", "링크(URL)" 열을 추가할 것)
     """,
     "follow_up": "위의 대화 문맥과 새롭게 검색된 아래의 데이터를 바탕으로 사용자님의 질문에 답변하십시오. 정보가 부족하다면 '데이터 부족'을 명시하고, 답변 시 반드시 새로운 출처 번호를 본문에 인용하십시오.",
 }
@@ -66,11 +73,28 @@ def get_query_embedding(text):
         return response.json()["embedding"]
 
 
-def search_database(query, top_k=5):
+def search_database(query, top_k=5, hours_ago=None):
     query_vector = get_query_embedding(query)
-    response = qdrant.query_points(
-        collection_name=COLLECTION_NAME, query=query_vector, limit=top_k
-    )
+
+    # 기본 검색 조건
+    search_params = {
+        "collection_name": COLLECTION_NAME,
+        "query": query_vector,
+        "limit": top_k,
+    }
+
+    # 💡 [핵심] hours_ago 값이 들어오면 해당 시간 이내의 데이터만 물리적으로 필터링
+    if hours_ago is not None:
+        time_threshold = int(time.time()) - (hours_ago * 3600)
+        search_params["query_filter"] = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="timestamp", range=models.Range(gte=time_threshold)
+                )
+            ]
+        )
+
+    response = qdrant.query_points(**search_params)
 
     if not response.points:
         return "관련된 최신 데이터를 찾을 수 없습니다."
@@ -78,16 +102,12 @@ def search_database(query, top_k=5):
     context_text = ""
     for i, hit in enumerate(response.points, 1):
         payload = hit.payload
-        # payload에 저장된 timestamp를 읽기 쉬운 날짜 형태로 변환 (없으면 '최근'으로 표기)
-        pub_time = "최근 24시간 이내"  # 실제 수집기(collector.py)에서 저장한 시간 포맷팅 로직 추가 가능
+        pub_time = "최근 24시간 이내"
         if "timestamp" in payload:
-            from datetime import datetime
-
             pub_time = datetime.fromtimestamp(payload["timestamp"]).strftime(
                 "%Y-%m-%d %H:%M"
             )
 
-        # AI가 시간을 인지할 수 있도록 [수집일시] 태그 추가
         context_text += f"[{i}] [수집일시: {pub_time}] 출처: {payload.get('project', 'Unknown')} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
     return context_text
 
@@ -131,11 +151,15 @@ tools = [
 
 
 # --- 4. 대화형 AI 엔진 ---
-def generate_daily_report(chat_history):
+def generate_daily_report(chat_history: list[dict[str, str | None]]):
     daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
-    daily_context = search_database(daily_query, top_k=8)
+    daily_context = search_database(daily_query, top_k=15, hours_ago=24)
 
-    initial_prompt = f"{PROMPT['daily_report']}\n\n[수집된 데이터]\n{daily_context}"
+    # 💡 [핵심 추가] AI에게 알려줄 현재 시각 문자열 생성
+    now = datetime.now(timezone(timedelta(hours=9)))
+    current_time_str = now.strftime("%Y-%m-%d %H:%M KST")
+    initial_prompt = f"{PROMPT['daily_report'].format(current_time=current_time_str)}\n\n[수집된 데이터]\n{daily_context}"
+
     chat_history.append({"role": "user", "content": initial_prompt})
 
     response = llm_client.chat.completions.create(
@@ -165,16 +189,18 @@ def generate_daily_report(chat_history):
     return full_report, str(file_path)
 
 
-def generate_daily_report_stream(chat_history):
+def generate_daily_report_stream(chat_history: list[dict[str, str | None]]):
     yield ">> 데이터베이스에서 최근 24시간 글로벌 동향을 탐색 중입니다...\n"
     daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
-    daily_context = search_database(daily_query, top_k=8)
+    daily_context = search_database(daily_query, top_k=15, hours_ago=24)
 
     info_count = len(daily_context.split("[수집일시]")) - 1
     yield f">> DB 검색 완료. {info_count}개의 핵심 정보를 확보했습니다.\n"
     yield ">> AI 분석 엔진(Anthropic Claude 3.5 Sonnet) 가동 시작...\n\n"
 
-    initial_prompt = f"{PROMPT['daily_report']}\n\n[수집된 데이터]\n{daily_context}"
+    now = datetime.now(timezone(timedelta(hours=9)))
+    current_time_str = now.strftime("%Y-%m-%d %H:%M KST")
+    initial_prompt = f"{PROMPT['daily_report'].format(current_time=current_time_str)}\n\n[수집된 데이터]\n{daily_context}"
 
     # Use a copy so we don't mess up the global history mid-stream if it fails
     local_history = chat_history.copy()
@@ -208,7 +234,7 @@ def generate_daily_report_stream(chat_history):
         {"=" * 80}
     """).strip()
 
-    with open(file_path, "a", encoding="utf-8") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(full_report + "\n\n")
 
     yield f"\n\n>> [시스템] 보고서 저장이 완료되었습니다: {file_path}"
@@ -216,7 +242,7 @@ def generate_daily_report_stream(chat_history):
 
 def chat_turn(user_input, chat_history):
     # 1. 1차 내부 DB 검색 (Qdrant)
-    new_context = search_database(user_input, top_k=5)
+    new_context = search_database(user_input, top_k=15)
 
     # 2. 프롬프트 구성
     follow_up_prompt = f"""{PROMPT["follow_up"]}
